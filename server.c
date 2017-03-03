@@ -42,15 +42,34 @@ void* worker (void* argument)
 	int clientSocket = *((int*) argument);
  	
 	int isSession = 0; /*0 - no logical session is started, 1 - session is started */
- 
+ 	
+	char *dataStr = NULL;
+	
  	while (1) {
-		int count;
+		
+        struct timeval tv;
+        tv.tv_sec = 5;
+        tv.tv_usec = 0;
+		
+	    fd_set rfd;
+	    FD_ZERO (&rfd);
+	    FD_SET (clientSocket, &rfd);
+	    int result = select (clientSocket + 1, &rfd, 0, 0, &tv);
+		
+		if (result <= 0) {
+	    /*    printf("Client disconnected.\n");
+			close (clientSocket);
+			free(dataStr);
+	      	break;	
+		*/
+		}
+		
+		int count = 0;
 		ioctl (clientSocket, FIONREAD, &count);
 		
 		if (count > 0) {
-			count++; /* for trailing 0 */
 			char *buf = calloc (count, sizeof (char));
-			read (clientSocket, buf, count - 1);
+			read (clientSocket, buf, count);
 			printf ("Data received: %s \n",buf); 	
 			
 			/*TODO think about another way to define command */
@@ -60,59 +79,65 @@ void* worker (void* argument)
 				printf ("Connected\n");
 				isSession = 1;
 				/*TODO it might be some umique actions for logical session */
+				free(dataStr);
+				continue;
 			}
 			
 			if (isSession == 1) {
 				if (strcmp (buf, "GET DATA") == 0) {
 					
 					const char *dataArray = "123456789";
-					uint16_t dataSize = strlen (dataArray) + 1; 
+					uint16_t dataSize = strlen (dataArray); 
 					uint16_t packageSize = dataSize + 4;
-					uint16_t dataCrc16 = gen_crc16 (dataArray, dataSize);
+					uint16_t dataCrc16 = gen_crc16 ( (uint8_t*) dataArray, dataSize);
 					
-					char *package [packageSize];
+					printf ("CRC = %d\n", dataCrc16);
+					
+					char *package = calloc (packageSize + 1, sizeof (char));
+			
 					char *cp = package;
 					memcpy (cp, &packageSize, 2); cp +=2;
 					memcpy (cp, dataArray, dataSize);
 					cp += dataSize;
-					memcpy (cp, &dataCrc16, 2);				
-
+					memcpy (cp, &dataCrc16, 2);
+					
+					printf ("pack size = %d\n", packageSize);
+					
+					
 					send (clientSocket, package, packageSize, 0);
 
-					
-					
+					free (package);
+									
 					/*TODO Generator of data */
+					
+					free(dataStr);
+					continue;
 				}
 			
 			
 				if (strcmp (buf, "DATA RECEIVED") == 0) {
 					/*TODO may be ack */
+					free(dataStr);
+					continue;
 				}
 
 				if (strcmp (buf, "CLOSE") == 0) {
 					send (clientSocket, "CLOSE ACK\n", 11, 0);
 					isSession = 0;
-				
+					free(dataStr);
+					continue;
 				}
+				
+				/* it migth be partially received string */
+				dataStr = realloc (dataStr, (strlen (dataStr) + count) * sizeof (char));
+				dataStr = strcat (dataStr, buf);
 				
 				
 			}
 			
 			free (buf);
-		}
-		else {
-			/* Check the socket is readable */
-		    fd_set rfd;
-		    FD_ZERO (&rfd);
-		    FD_SET (clientSocket, &rfd);
-		    struct timeval tv = { 1 };
-		    select (clientSocket + 1, &rfd, 0, 0, &tv);
-		    if (!FD_ISSET (clientSocket, &rfd)) {
-		        printf("Client disconnected.\n");
-				close (clientSocket);
-		      	break;
-			}			
-		} 
+		}	
+			
 	}
   	return NULL;
 }

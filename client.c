@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <string.h>
@@ -25,25 +26,74 @@ int create_socket_and_connect () {
 	return clientSocket;
 }
 
+void get_partial_data (int clientSocket, char *buf, int size, int maxSize) {
+	int result = 0;
+	if (size > 0) {
+		char *end = buf;
+		int readed = 0;
+		while (readed < size) {
+			result = read (clientSocket, end, size - readed);
+			if (result > 0) {
+				readed += result;
+				end += result;
+			} 
+			else {
+				/*TODO Error */
+				//printf ("Error while data is reading \n");
+			}
+		}
+	}
+	else {
+		result = read (clientSocket, buf, maxSize);
+		if (result <= 0)  {
+			/*TODO Error */
+			printf ("Error while data is reading \n");
+		}
+		
+	}
+	
+}
+
+void get_signed_package (int clientSocket) {
+	char buffer[2];
+	get_partial_data (clientSocket, buffer, 2, 2);
+	uint16_t size = (uint16_t) *buffer;
+	
+	printf ("size = %d\n", size);
+	
+	
+	if (size > 0) {
+		char *pack = calloc (size - 3, sizeof (char));
+		get_partial_data (clientSocket, pack, size - 4, size - 4);
+		printf ("package: %s\n", pack);
+		
+		char crc[2];
+		get_partial_data (clientSocket, crc, 2, 2);
+		uint16_t crc16 = (uint16_t) *crc;
+		printf ("crc: %d \n", crc16);
+		
+		//char trailing;
+		//get_partial_data (clientSocket, &trailing, 1, 1);
+		
+		free (pack);
+	}
+}
+
 
 void get_data_from_server (int clientSocket) {
 	char buffer[1024];
 
 	send (clientSocket, "CONNECT", 8, 0);	
-
-    read (clientSocket, buffer, 1024);
+	get_partial_data (clientSocket, buffer, 0, 1024);	
     printf ("Data received: %s \n",buffer); 
 	memset (buffer, '\0', 1024);
 
-	send (clientSocket, "GET DATA", 9, 0);	
-
-    read (clientSocket, buffer, 1024);
-	printf ("Data received: %s \n",buffer); 
-	memset (buffer, '\0', 1024);
+	send (clientSocket, "GET DATA", 9, 0);
+	get_signed_package (clientSocket);
 
 	send (clientSocket, "CLOSE", 6, 0);	
 
-    read (clientSocket, buffer, 1024);
+	get_partial_data (clientSocket, buffer, 0, 1024);	
     printf ("Data received: %s \n",buffer); 
 	memset (buffer, '\0', 1024);
 
